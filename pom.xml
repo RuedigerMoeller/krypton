@@ -95,6 +95,12 @@
             <version>3.33</version>
         </dependency>
 
+        <dependency>
+            <groupId>de.ruedigermoeller</groupId>
+            <artifactId>kontraktor-http</artifactId>
+            <version>3.33.2</version>
+        </dependency>
+
         <!-- commandline parsing -->
         <dependency>
             <groupId>com.beust</groupId>

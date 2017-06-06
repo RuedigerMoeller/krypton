@@ -1,6 +1,7 @@
 package org.krypton;
 
 import org.nustaq.kontraktor.remoting.base.ConnectableActor;
+import org.nustaq.kontraktor.remoting.websockets.WebSocketConnectable;
 
 import java.io.Serializable;
 
@@ -9,16 +10,18 @@ import java.io.Serializable;
  */
 public class RemotePeer implements Serializable {
 
-    String id;
     ConnectableActor connectable;
 
-    public RemotePeer(String id, ConnectableActor connectable) {
-        this.id = id;
+    public RemotePeer(ConnectableActor connectable) {
         this.connectable = connectable;
     }
 
     public String getId() {
-        return id;
+        //fixme: need id method on connectable
+        if ( false == connectable instanceof WebSocketConnectable)
+            throw new RuntimeException("unexpected type");
+        WebSocketConnectable ws = (WebSocketConnectable) connectable;
+        return ws.getUrl();
     }
 
     public ConnectableActor getConnectable() {

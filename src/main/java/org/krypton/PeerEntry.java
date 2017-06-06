@@ -3,7 +3,9 @@ package org.krypton;
 import org.nustaq.kontraktor.Actor;
 import org.nustaq.kontraktor.Callback;
 import org.nustaq.kontraktor.IPromise;
+import org.nustaq.kontraktor.Promise;
 import org.nustaq.kontraktor.remoting.base.ConnectableActor;
+import org.nustaq.kontraktor.remoting.websockets.WebSocketConnectable;
 import org.nustaq.kontraktor.util.Log;
 
 /**
@@ -11,21 +13,13 @@ import org.nustaq.kontraktor.util.Log;
  */
 public class PeerEntry {
 
-    String id;
     ConnectableActor connectable;
-    KNode node; // if connected
+    KryptonNode node; // if connected
     long latency;
     int latCount;
 
-    public PeerEntry(String id, ConnectableActor connectable) {
-        this.id = id;
+    public PeerEntry(ConnectableActor connectable) {
         this.connectable = connectable;
-    }
-
-    public PeerEntry(long latency, RemotePeer rp) {
-        this.id = rp.getId();
-        this.connectable = rp.getConnectable();
-        measure(latency);
     }
 
     public void measure(long latency) {
@@ -37,14 +31,22 @@ public class PeerEntry {
         return node != null && !node.isStopped();
     }
 
-    public IPromise<KNode> connect(Callback<Actor> disconCB) {
-        return connectable.connect(
+    public IPromise<KryptonNode> connect(Callback<Actor> disconCB) {
+        Promise p = new Promise();
+        connectable.connect(
             (acc,err) -> {
                 node = null;
                 Log.Info(this,"acc disconnected "+acc);
             },
             actor -> disconCB.complete(actor,null)
-        );
+        ).then( (nd,errnd) -> {
+            node = (KryptonNode) nd;
+            if ( node != null ) {
+                Log.Info(this,"node connected "+connectable);
+            }
+            p.complete(nd,errnd);
+        });
+        return p;
     }
 
     public void setLatency(int latency) {
@@ -52,14 +54,18 @@ public class PeerEntry {
     }
 
     public String getId() {
-        return id;
+        //fixme: need id method on connectable
+        if ( false == connectable instanceof WebSocketConnectable)
+            throw new RuntimeException("unexpected type");
+        WebSocketConnectable ws = (WebSocketConnectable) connectable;
+        return ws.getUrl();
     }
 
     public ConnectableActor getConnectable() {
         return connectable;
     }
 
-    public KNode getNode() {
+    public KryptonNode getNode() {
         return node;
     }
 
