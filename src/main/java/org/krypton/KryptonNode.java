@@ -10,6 +10,7 @@ import org.nustaq.kontraktor.util.Log;
 import org.nustaq.kontraktor.util.Pair;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -18,6 +19,7 @@ import java.util.Map;
  */
 public class KryptonNode extends Actor<KryptonNode> {
     private static final long TICK_MILLIS = 5000;
+    public static final int PEER_SYNC_FREQ = 3;
     private Map<String,PeerEntry> peers;
     private RemotePeer remoteSelf;
 
@@ -29,7 +31,8 @@ public class KryptonNode extends Actor<KryptonNode> {
             .forEach( str -> {
                 WebSocketConnectable wsc = new WebSocketConnectable(KryptonNode.class, str);
                 PeerEntry remotePeer = new PeerEntry(wsc);
-                peers.put(remotePeer.getId(),remotePeer);
+                if ( ! remoteSelf.getId().equals(remotePeer.getId()) )
+                    peers.put(remotePeer.getId(),remotePeer);
             });
 
         self().cycle();
@@ -37,10 +40,19 @@ public class KryptonNode extends Actor<KryptonNode> {
     }
 
     public IPromise<Pair<Long,RemotePeer>> pingInit(long time, RemotePeer sender) {
-        return resolve(new Pair(time,remoteSelf));
+        HashSet<RemotePeer> peerCopy = new HashSet<>();
+        peers.values().forEach( pe -> {
+            peerCopy.add(new RemotePeer(pe.getConnectable()));
+        });
+        return resolve(new Pair(time,new RemotePeer(remoteSelf.getConnectable()).peers(peerCopy)));
     }
 
     public IPromise<Long> pingFast(long time, String senderId) {
+        if ( ! peers.containsKey(senderId) && ! remoteSelf.getId().equals(senderId) ) {
+            WebSocketConnectable wsc = new WebSocketConnectable(KryptonNode.class, senderId);
+            PeerEntry remotePeer = new PeerEntry(wsc);
+            peers.put(remotePeer.getId(),remotePeer);
+        }
         return resolve(time);
     }
 
@@ -53,6 +65,8 @@ public class KryptonNode extends Actor<KryptonNode> {
         if ( ! isStopped() ) {
             try {
                 counter++;
+                 if ( counter% PEER_SYNC_FREQ == 1 )
+                    Log.Info(this,"running peer sync");
                 // ping or try connect each peer
                 for ( PeerEntry peerEntry : peers.values() ) {
                     if ( ! peerEntry.isConnected() ) {
@@ -62,35 +76,32 @@ public class KryptonNode extends Actor<KryptonNode> {
                         }).then( (remoteActor,error) -> {
                             long now = System.currentTimeMillis();
                             if ( remoteActor != null ) {
-                                remoteActor.pingInit(now,remoteSelf).then((pair, err) -> {
-                                    if ( pair != null ) {
-                                        //
-                                    } else {
-                                        Log.Info(this,"ping failed "+peerEntry.getConnectable()+":"+err);
-                                    }
-                                });
+                                remoteActor.pingInit(now,remoteSelf)
+                                    .then((pair, err) -> processPingInit(peerEntry, pair, err));
                             } else {
                                 Log.Info(this,"connect failed "+peerEntry.getConnectable());
                             }
                         });
                     } else {
                         long now = System.currentTimeMillis();
-                        peerEntry.getNode().pingFast(now,remoteSelf.getId()).then((pair,err) -> {
-                            if ( pair != null ) {
-                                peerEntry.measure(now-System.currentTimeMillis());
-                            } else {
-                                Log.Info(this,"ping failed "+peerEntry.getConnectable());
-                                peers.remove(peerEntry.getId());
-                            }
-                        });
+                        // each X interval do pingInit
+                        if ( counter% PEER_SYNC_FREQ == 1 ) {
+                            peerEntry.getNode().pingInit(now,remoteSelf)
+                                .then((pair, err) -> processPingInit(peerEntry, pair, err));
+                        } else {
+                            peerEntry.getNode().pingFast(now,remoteSelf.getId()).then((pair,err) -> {
+                                if ( pair != null ) {
+                                    peerEntry.measure(System.currentTimeMillis() - now);
+                                } else {
+                                    Log.Info(this,"ping failed "+peerEntry.getConnectable());
+                                    peers.remove(peerEntry.getId());
+                                }
+                            });
+                        }
                     }
                 }
                 if ( counter%2 == 1 ) {
-//                    siblings = nextSiblings;
-//                    if (primaryDesc!=null)
-//                        siblings.put(primaryDesc.getId(),primaryDesc);
-////                    System.out.println("switching: "+nextSiblings.size());
-//                    nextSiblings = new HashMap<>();
+                    dumpState();
                 }
                 if (counter > 100_000) {
                     counter = 0;
@@ -99,6 +110,26 @@ public class KryptonNode extends Actor<KryptonNode> {
                 Log.Info(this,th);
             }
             delayed(TICK_MILLIS, () -> cycle());
+        }
+    }
+
+    private void dumpState() {
+        Log.Info(this,"self:"+remoteSelf);
+        peers.forEach((k,v) -> Log.Info(this,"    "+k+" "+v.isConnected()+" lat:"+v.getAvgLatency()));
+    }
+
+    private void processPingInit(PeerEntry parentPeer /*the node reporting peers*/, Pair<Long, RemotePeer> pair, Object err) {
+        if ( pair != null ) {
+            pair.cdr().getPeers().forEach( rp -> {
+                PeerEntry pe = new PeerEntry(rp.getConnectable());
+                String peId = pe.getId();
+                if ( !peers.containsKey(peId) && ! peId.equals(remoteSelf.getId())) {
+                    Log.Info(this,"adding peer of remote node "+peId+" num peers "+(peers.size()+1));
+                    peers.put(peId,pe);
+                }
+            });
+        } else {
+            Log.Info(this,"ping failed "+parentPeer.getConnectable()+":"+err);
         }
     }
 

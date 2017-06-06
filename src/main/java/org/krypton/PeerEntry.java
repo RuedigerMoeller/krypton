@@ -10,16 +10,17 @@ import org.nustaq.kontraktor.util.Log;
 
 /**
  * Created by ruedi on 05.06.17.
+ *
+ * This represents an actual peer connected locally
  */
-public class PeerEntry {
+public class PeerEntry extends RemotePeer {
 
-    ConnectableActor connectable;
     KryptonNode node; // if connected
     long latency;
     int latCount;
 
     public PeerEntry(ConnectableActor connectable) {
-        this.connectable = connectable;
+        super(connectable);
     }
 
     public void measure(long latency) {
@@ -69,7 +70,10 @@ public class PeerEntry {
         return node;
     }
 
-    public long getLatency() {
+    public long getAvgLatency() {
+        if ( latCount == 0 ) {
+            return 1000;
+        }
         return latency/latCount;
     }
 }
