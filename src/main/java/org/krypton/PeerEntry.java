@@ -26,6 +26,10 @@ public class PeerEntry extends RemotePeer {
     public void measure(long latency) {
         this.latency += latency;
         latCount++;
+        if ( latCount > 5 ) {
+            this.latency = getAvgLatency();
+            latCount = 1;
+        }
     }
 
     public boolean isConnected() {

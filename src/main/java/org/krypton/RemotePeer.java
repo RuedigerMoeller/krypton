@@ -12,7 +12,7 @@ import java.util.Set;
 public class RemotePeer implements Serializable {
 
     protected ConnectableActor connectable;
-    protected Set<RemotePeer> peers;
+    protected Set<RemotePeer> peers; // only set if explicitely initialezed by sender
 
     public RemotePeer(ConnectableActor connectable) {
         this.connectable = connectable;

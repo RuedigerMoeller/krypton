@@ -3,6 +3,7 @@ package org.krypton;
 import org.nustaq.kontraktor.Actor;
 import org.nustaq.kontraktor.IPromise;
 import org.nustaq.kontraktor.annotations.Local;
+import org.nustaq.kontraktor.impl.DispatcherThread;
 import org.nustaq.kontraktor.remoting.base.ConnectableActor;
 import org.nustaq.kontraktor.remoting.websockets.WebSocketConnectable;
 import org.nustaq.kontraktor.remoting.websockets.WebSocketPublisher;
@@ -13,14 +14,19 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Created by ruedi on 05.06.17.
  */
 public class KryptonNode extends Actor<KryptonNode> {
-    private static final long TICK_MILLIS = 5000;
+    private static final long TICK_MILLIS = 3000;
     public static final int PEER_SYNC_FREQ = 3;
+    public static final int MAX_FLOOD_PEERS = 100;
+    public static final int MSG_FLIP_FREQ = 5;
+
     private Map<String,PeerEntry> peers;
+    private List<PeerEntry> peersLatencySorted;
     private RemotePeer remoteSelf;
 
     @Local
@@ -65,8 +71,16 @@ public class KryptonNode extends Actor<KryptonNode> {
         if ( ! isStopped() ) {
             try {
                 counter++;
-                 if ( counter% PEER_SYNC_FREQ == 1 )
+
+                if ( counter% PEER_SYNC_FREQ == 1 )
                     Log.Info(this,"running peer sync");
+
+                if ( counter % MSG_FLIP_FREQ == 1 ) {
+                    // flip msgid cache
+                    currentMsgCache = 1-currentMsgCache;
+                    msgCache[currentMsgCache].clear();
+                }
+
                 // ping or try connect each peer
                 for ( PeerEntry peerEntry : peers.values() ) {
                     if ( ! peerEntry.isConnected() ) {
@@ -99,6 +113,10 @@ public class KryptonNode extends Actor<KryptonNode> {
                             });
                         }
                     }
+                }
+                if ( counter%(2*PEER_SYNC_FREQ) == 1 ) {
+                    Log.Info(this,"resetting latsorted peers");
+                    peersLatencySorted = null;
                 }
                 if ( counter%2 == 1 ) {
                     dumpState();
@@ -133,7 +151,48 @@ public class KryptonNode extends Actor<KryptonNode> {
         }
     }
 
-    public static void main(String[] args) {
+    // contains ids of messages received. Flipping used for time-based fade out
+    HashSet<String> msgCache[] = new HashSet[] { new HashSet(), new HashSet() };
+    int currentMsgCache = 0;
+    public void flood(FloodMessage msg, int depth, HashSet<String> alreadySent) {
+        if ( msgCache[0].contains(msg.getMsgId()) || msgCache[1].contains(msg.getMsgId()) ) {
+            return;
+        }
+        msgCache[currentMsgCache].add(msg.getMsgId());
+        if ( depth >= 0 )
+            processMessage(msg);
+        //FIXME: sort by lat here
+        List<PeerEntry> pLat = getPeersLatencySorted();
+        for (int i = 0; i < pLat.size(); i++) {
+            PeerEntry peerEntry = pLat.get(i);
+            if ( ! alreadySent.contains(peerEntry.getId()) ) {
+                alreadySent.add(peerEntry.getId());
+                peerEntry.getNode().flood(msg,depth+1, alreadySent );
+            }
+        }
+    }
+
+    int benchCount = 0;
+    private void processMessage(FloodMessage msg) {
+        if ( msg instanceof BenchFloodMessage ) {
+            if ( benchCount++ % 10_000 == 0 ) {
+                System.out.println("receive message "+((BenchFloodMessage) msg).getCount()+" rec:"+benchCount );
+            }
+        }
+    }
+
+    private List<PeerEntry> getPeersLatencySorted() {
+        if ( peersLatencySorted == null ) {
+            peersLatencySorted = peers.values().stream()
+                .sorted((a, b) -> Long.compare(b.getAvgLatency(), a.getAvgLatency()))
+                .limit(MAX_FLOOD_PEERS)
+                .collect(Collectors.toList());
+        }
+        return peersLatencySorted;
+    }
+
+    public static void main(String[] args) throws InterruptedException {
+        DispatcherThread.DUMP_CATCHED = true;
         KryptonNodeArgs kna = KryptonNodeArgs.parseCommandLine(args, new KryptonNodeArgs());
 
         KryptonNode kn = AsActor(KryptonNode.class);
@@ -146,6 +205,20 @@ public class KryptonNode extends Actor<KryptonNode> {
         pub.publish( act -> {
            Log.Info(KryptonNode.class,"server disconnected");
         });
+
+        if ( kna.getPort() == 8005 ) {
+            Thread.sleep(10_000 );
+            int cnt = 0;
+            while( true ) {
+                long tim = System.currentTimeMillis();
+                for ( int i = 0; i < 15_000; i++ ) {
+                    FloodMessage fl = new BenchFloodMessage(cnt++);
+                    kn.flood( fl, -1, new HashSet<>() );
+                }
+                System.out.println("time: "+(System.currentTimeMillis()-tim));
+                Thread.sleep(1000 );
+            }
+        }
     }
 
 }
