@@ -77,8 +77,12 @@ public class KryptonNode extends Actor<KryptonNode> {
 
                 if ( counter % MSG_FLIP_FREQ == 1 ) {
                     // flip msgid cache
+                    Log.Info(this,"PREFLIP cur:"+currentMsgCache);
                     currentMsgCache = 1-currentMsgCache;
+                    Log.Info(this,"FLIP PRECLEAR siz0:"+msgCache[0].size()+" siz1:"+msgCache[1].size());
                     msgCache[currentMsgCache].clear();
+                    Log.Info(this,"FLIP siz0:"+msgCache[0].size()+" siz1:"+msgCache[1].size());
+                    Log.Info(this,"PASTFLIP cur:"+currentMsgCache);
                 }
 
                 // ping or try connect each peer
@@ -154,7 +158,7 @@ public class KryptonNode extends Actor<KryptonNode> {
     // contains ids of messages received. Flipping used for time-based fade out
     HashSet<String> msgCache[] = new HashSet[] { new HashSet(), new HashSet() };
     int currentMsgCache = 0;
-    public void flood(FloodMessage msg, int depth, HashSet<String> alreadySent) {
+    public void flood(FloodMessage msg, int depth) {
         if ( msgCache[0].contains(msg.getMsgId()) || msgCache[1].contains(msg.getMsgId()) ) {
             return;
         }
@@ -165,10 +169,8 @@ public class KryptonNode extends Actor<KryptonNode> {
         List<PeerEntry> pLat = getPeersLatencySorted();
         for (int i = 0; i < pLat.size(); i++) {
             PeerEntry peerEntry = pLat.get(i);
-            if ( ! alreadySent.contains(peerEntry.getId()) ) {
-                alreadySent.add(peerEntry.getId());
-                peerEntry.getNode().flood(msg,depth+1, alreadySent );
-            }
+            if ( peerEntry.isConnected() )
+                peerEntry.getNode().flood(msg,depth+1);
         }
     }
 
@@ -176,7 +178,7 @@ public class KryptonNode extends Actor<KryptonNode> {
     private void processMessage(FloodMessage msg) {
         if ( msg instanceof BenchFloodMessage ) {
             if ( benchCount++ % 10_000 == 0 ) {
-                System.out.println("receive message "+((BenchFloodMessage) msg).getCount()+" rec:"+benchCount );
+                System.out.println("receive message "+((BenchFloodMessage) msg).getCount()+" rec:"+benchCount+" "+msgCache[0].size()+" "+msgCache[1].size() );
             }
         }
     }
@@ -211,9 +213,9 @@ public class KryptonNode extends Actor<KryptonNode> {
             int cnt = 0;
             while( true ) {
                 long tim = System.currentTimeMillis();
-                for ( int i = 0; i < 15_000; i++ ) {
+                for ( int i = 0; i < 10_000; i++ ) {
                     FloodMessage fl = new BenchFloodMessage(cnt++);
-                    kn.flood( fl, -1, new HashSet<>() );
+                    kn.flood( fl, -1 );
                 }
                 System.out.println("time: "+(System.currentTimeMillis()-tim));
                 Thread.sleep(1000 );
