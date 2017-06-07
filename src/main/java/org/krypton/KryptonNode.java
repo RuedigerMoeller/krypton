@@ -208,16 +208,17 @@ public class KryptonNode extends Actor<KryptonNode> {
            Log.Info(KryptonNode.class,"server disconnected");
         });
 
-        if ( kna.getPort() == 8005 ) {
+        //if ( kna.getPort() == 8005 )
+        {
             Thread.sleep(10_000 );
             int cnt = 0;
             while( true ) {
                 long tim = System.currentTimeMillis();
-                for ( int i = 0; i < 10_000; i++ ) {
+                for ( int i = 0; i < 2000; i++ ) {
                     FloodMessage fl = new BenchFloodMessage(cnt++);
                     kn.flood( fl, -1 );
                 }
-                System.out.println("time: "+(System.currentTimeMillis()-tim));
+//                System.out.println("time: "+(System.currentTimeMillis()-tim));
                 Thread.sleep(1000 );
             }
         }
