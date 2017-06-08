@@ -4,3 +4,4 @@
 
 - NPE/AIB on disconnect (occassional)
 - msgcache flipping not working ?
+- make empty transactions more expensive
